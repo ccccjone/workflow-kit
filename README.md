@@ -4,6 +4,6 @@
 
 | 目录 | 适用工具 | 说明 |
 |---|---|---|
-| [claude-workflow-kit/](./claude-workflow-kit/) | Claude Code | spec-first / plan-first / TDD / 混合执行，详见 [README-claude-workflow.md](./claude-workflow-kit/README-claude-workflow.md) |
+| [claude-workflow-kit/](./claude-workflow-kit/) | Claude Code | spec-first / plan-first / TDD / 混合执行，详见 [README.md](./claude-workflow-kit/README.md) |
 
 > 后续计划补充：`codex-workflow-kit/`、`kiro-workflow-kit/` 等。
