@@ -1,94 +1,139 @@
-# Claude Code 协作工作流（迁移包）
+# Claude Code Collaboration Workflow Kit
 
-一套可直接套用的 Claude Code CLI 协作流程：spec-first / plan-first / TDD / 混合执行。从一个跑了一段时间的实战项目里抽取，去掉了栈特定内容（移动端 / iOS / 特定工具链），保留通用核心。
+**English** · [简体中文](./README.zh-CN.md)
 
-## 文件清单
+A drop-in collaboration workflow for Claude Code: risk-tiered specs, plan-first, TDD, and mixed inline/subagent execution. It also includes **constraints and verification enforced in code** and **a loop for learning from failures**.
+
+v2 is revised using the harness-engineering approach from *AI Agents in Depth* ([bojieli/ai-agent-book](https://github.com/bojieli/ai-agent-book)). See the changelog at the end.
+
+> **Language note:** the rules, skills and process docs that get installed into your project (`CLAUDE.md`, `.claude/`, `docs/`) are currently written in Chinese. Claude follows them fine either way, and you can translate them if your team prefers English.
+
+## Files
+
+`install.sh` and the READMEs stay in the kit. Everything else is copied into your project:
 
 ```
-<your-repo>/
-├── CLAUDE.md                       # 5 条硬规则 + 导航 + 推荐 skills（Claude Code 启动时自动读）
+claude-workflow-kit/
+├── install.sh                       # install into a target repo (never overwrites)
+├── CLAUDE.md                        # 5 hard rules + execution defaults + project-specific section + navigation
+├── .claude/
+│   ├── settings.json                # permission deny/ask lists + hook registration
+│   ├── verify.sh                    # single source of the lint / type-check / test gate
+│   ├── hooks/
+│   │   ├── guard-bash.sh            # blocks --no-verify and force push
+│   │   └── stop-verify.sh           # runs verify.sh before a turn ends if source files changed
+│   ├── agents/                      # subagent roles; models are bound only here
+│   │   ├── implementer.md           # T2/T3 implementation (sonnet)
+│   │   ├── reviewer.md              # T3 evidence-based review (inherit)
+│   │   └── explorer.md              # read-only search (haiku)
+│   └── skills/                      # procedures, loaded on demand
+│       ├── project-init/            # new project: stack choice → ADR → fill verify.sh and project section
+│       ├── spec-writing/            # S0/S1/S2 tiers + spec template
+│       ├── plan-execution/          # plan structure, T1–T4, circuit breaker, progress handoff
+│       ├── refactor-flow/           # slimmed-down flow for pure refactors
+│       └── lesson-capture/          # log failures, propose minimal rule updates
 └── docs/
     ├── 00-Process/
-    │   ├── AI-Workflow.md          # 完整流水线：spec → plan → test → code → review → commit
-    │   ├── Definition-of-Done.md   # 完成标准（lint / 类型 / test / commit / no-TODO 等）
-    │   └── Doc-Conventions.md      # 命名 / 归档 / ADR 格式 / 链接规则
-    ├── 03-Specs/                   # 放 YYYY-MM-DD-<topic>.md 的 spec
-    └── 04-Plans/                   # 放与 spec 同名的 plan
+    │   ├── AI-Workflow.md           # overview + design rationale + model roles
+    │   ├── Definition-of-Done.md
+    │   └── Doc-Conventions.md
+    ├── 03-Specs/
+    ├── 04-Plans/
+    └── 05-Reviews/lessons.md        # lessons log
 ```
 
-## 怎么用（5 分钟上手）
+## Usage
 
-### 1. 拷到自己 repo 根目录
+The kit defines **process** only. It does not prescribe languages, frameworks or architecture. Each project chooses its stack with `project-init`, and those choices only become constraints once they are recorded as an ADR.
+
+### New project (from scratch)
 
 ```bash
-cd <your-repo>
-cp -r path/to/this/kit/CLAUDE.md ./
-cp -r path/to/this/kit/docs ./
+sh path/to/claude-workflow-kit/install.sh ~/Projects/my-new-app
+cd ~/Projects/my-new-app
+claude
 ```
 
-`docs/03-Specs/` 和 `docs/04-Plans/` 暂时是空的，第一次 spec 写完就有内容。
-
-> 如果你 repo 已经有 `CLAUDE.md`，合并而不是覆盖。本套规则推荐放在你现有 CLAUDE.md 的顶部。
-
-### 2.（推荐）装 superpowers plugin
-
-工作流里推荐用的几个 skill（brainstorming / writing-plans / executing-plans 等）来自 [superpowers](https://github.com/obra/superpowers) plugin。
-
-在 Claude Code CLI 里运行：
+First message:
 
 ```
-/plugin
+Run project-init. I want to build <one line: what it does, who it's for, where it runs, any preferred tech>.
 ```
 
-按提示安装 `superpowers`。装完之后 `/brainstorming`、`/writing-plans` 等 slash command 就能直接用。
+Claude asks a few questions that affect the stack choice, then proposes a recommendation plus alternatives. After you confirm, it writes ADR 0001 and fills in `verify.sh` and the "project-specific" section of `CLAUDE.md`. It then builds a minimal runnable skeleton as the first S1 task.
 
-不装也能跑——只是 spec / plan / review 都要你自己（或让 Claude 自由发挥）拼。
+### Existing project
 
-### 3.（推荐）加 pre-commit hook 强制验收门
+Run `install.sh <repo>` the same way. Files that already exist are skipped and listed, and you merge them by hand (especially `CLAUDE.md` and `.claude/settings.json`). Then ask Claude to run project-init. For an existing codebase it reads the current code and records the stack as it is. It does not re-choose the stack.
 
-`CLAUDE.md` 第 4 条硬规则要求 commit 前跑 lint / 类型检查 / tests。靠自觉容易漏，建议加 hook。Node/TS 项目示例（`.husky/pre-commit`）：
+### What install.sh does
 
-```bash
-#!/bin/sh
-npm run lint && npx tsc --noEmit && npm test
-```
+- Copies `CLAUDE.md`, `.claude/` and `docs/` without overwriting anything
+- Runs `git init` if the target is not a git repo
+- Adds `.git/hooks/pre-commit` containing `exec .claude/verify.sh`, so your own commits and Claude's pass the same gate
 
-其它栈类比替换。
+The hooks require `jq` (bundled with macOS 15+; otherwise `brew install jq`).
 
-### 4. 第一次和 Claude 协作（开场白模板）
+### Why copy it into the project instead of asking Claude to "read the kit"
 
-新开一个 Claude Code session，第一条消息可以是：
+Claude Code only loads `CLAUDE.md`, `.claude/settings.json` (hooks, permissions), `.claude/agents/` and `.claude/skills/` from the **current project**. If Claude only reads the kit from another folder, it sees the text, but the hooks don't run and the skills and subagents are never registered.
 
-```
-我想做 <一句话需求>。按 docs/00-Process/AI-Workflow.md 的流程走：
-先 brainstorming 对齐需求，输出 spec 到 docs/03-Specs/；
-spec 我确认后，写 plan 到 docs/04-Plans/；
-plan 我确认后，按混合模式执行（参考 AI-Workflow.md §Subagent vs Inline）。
-```
+### Before configuration
 
-Claude 会自动读 `CLAUDE.md` 和 `docs/` 引用的文件，按这套规则走。
+Until project-init runs, `verify.sh` is a placeholder. It passes and prints "not configured yet", so the Stop hook and pre-commit won't block you in an empty repo. Checks start being enforced once the stack is chosen.
 
-## 设计原则（为什么是这样）
+### Permissions
 
-- **5 条硬规则刻进 CLAUDE.md**：Claude Code 每次启动都会读 `CLAUDE.md`，所以最高优先级的约束写在那里、其它细节下沉到 `docs/`。
-- **Spec 和 plan 都是 checklist，不是 code dump**：1500 行的 plan 在执行时大量会被 subagent 重写，浪费 token 又和实际类型冲突——只写 task boundary + verification command + commit message。
-- **混合执行（subagent + inline）是默认**：T1（trivial 改动）和 T4（架构决策）inline 做；T2/T3（实现性多文件改动）派 subagent。Plan 通过后不要再问用户「subagent 还是 inline」。
-- **文档源在 in-repo**：不依赖 Obsidian / Notion / chat 历史。`git mv` 即归档，`grep` 即检索。
+`settings.json` only contains stack-agnostic rules:
 
-详见 [docs/00-Process/AI-Workflow.md](./docs/00-Process/AI-Workflow.md)。
+- **Denied:** `--no-verify`, force push, and reading `.env` files and certificates.
+- **Ask first:** `git push`, `reset --hard`, `git clean` and `rm -rf`.
 
-## 按需裁剪
+project-init adds project-specific dangerous commands (database resets, production deploys, etc.) to that project's own copy.
 
-这套是一份**起点**，不是教条。
+## Notes on hooks
 
-- 项目刚起步、没多少文件 → ADR 目录、Architecture 目录、Reviews 目录都可以先不建，等真需要再加。
-- 个人小项目 → 5 条硬规则里的 spec/plan 可以放宽到「一段话需求 + 一段话计划」，但 test-first 和 verification gate 不建议放。
-- 团队项目 → 反过来，可能要在 `docs/01-Requirements/` 加 backlog、在 `docs/02-Architecture/` 加 code-layout，看实际需要补。
+- **The Stop hook only runs when there are uncommitted source changes.** Plain conversation and doc-only edits are not affected. If the tests are slow, launch with `SKIP_STOP_VERIFY=1 claude`.
+- It blocks at most once per turn, using `stop_hook_active`, so it can't loop forever.
+- **Hooks run deterministic commands only. Never call a model from a hook** (e.g. to generate a commit message). Calling a model again on an error path can trigger cascading failures, which the book calls a "death spiral" (chapter 5).
+- `permissions.deny` only matches prefixes, so `guard-bash.sh` also catches flags that appear mid-command.
 
-## 进一步可选
+## Design principles
 
-CLAUDE.md 里没强制但实战很有用：
+- **Constraints over guidance:** a rule that a hook, lint or test can enforce shouldn't live only in docs.
+- **Reviews need new information:** the reviewer runs the tests and looks at screenshots instead of only reading the diff.
+- **Specs are tiered by risk:** small changes skip the interview, and high-risk changes require confirmation.
+- **Name roles, bind models in one place:** docs never mention model names, and `agents/*.md` use aliases. Before switching models, rerun a few past tasks and compare the results.
+- **Keep CLAUDE.md short and stable, put details in skills:** always-loaded context stays minimal, and full instructions load on demand.
+- **Learn from failures:** an issue becomes a rule only after it recurs (2+ times) and can be stated in one sentence. Prefer enforcing it in code.
+- **Docs live in the repo:** archive with `git mv`, search with `grep`.
 
-- **graphify**（可选）—— 自动维护代码知识图谱，跨模块查询比 grep 强。但需要单独装，且当前仅支持部分语言。
-- **memory 系统**（可选）—— Claude Code 内置的 `~/.claude/projects/.../memory/` 跨会话记忆，需要在 system prompt 里自行启用。
-- **graphify-out / 知识图谱 hook**——可以在 `.claude/settings.json` 里加 PreToolUse hook，让 Claude 搜索代码前先看知识图谱。本包未含，自行查 Claude Code hooks 文档。
+## Tailoring
+
+- **Small personal projects:** S1 specs can be even shorter, but keep test-first and the verify gate.
+- **Team projects:** add `docs/01-Requirements/` and `docs/02-Architecture/`, and tighten the deny list in `settings.json`.
+
+## Acknowledgements
+
+The design draws mainly on Bojie Li's *AI Agents in Depth: Design Principles and Engineering Practice* ([bojieli/ai-agent-book](https://github.com/bojieli/ai-agent-book)):
+
+- Ch. 1: harness engineering
+- Ch. 2: context and Skills
+- Ch. 5: failure recovery in coding agents
+- Ch. 9: continuous improvement
+- Ch. 10: multi-agent collaboration
+
+## v2 changes (vs. the initial version)
+
+- Added `.claude/settings.json`, hooks and `verify.sh`, so hard rule 4 is enforced in code
+- Added three subagent definitions; models moved out of the docs and are bound only in `agents/*.md`
+- Moved procedures from AI-Workflow.md into skills; AI-Workflow.md now holds only the overview and rationale
+- Specs tiered S0/S1/S2; the reviewer must work from execution evidence
+- Added a circuit breaker, a Progress handoff section, a 5-line change summary, `lesson-capture` and `lessons.md`
+- Definition of Done now requires evidence, UI screenshots, and an eval-set gate for in-product LLM features
+- Kept the kit stack-agnostic: `verify.sh` starts as a placeholder, and `project-init` chooses the stack and records it as an ADR
+- Added `install.sh`
+
+## License
+
+[MIT](../LICENSE)
